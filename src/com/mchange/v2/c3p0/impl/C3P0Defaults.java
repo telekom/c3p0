@@ -54,6 +54,7 @@ public final class C3P0Defaults
     private final static String CONTEXT_CLASS_LOADER_SOURCE      = "caller"; // caller | library | none
     private final static String DRIVER_CLASS                     = null;
     private final static String JDBC_URL                         = null;
+    private final static String MARK_SESSION_BOUNDARIES          = "always"; // always | never | if-no-statement-cache
     private final static String OVERRIDE_DEFAULT_USER            = null;
     private final static String OVERRIDE_DEFAULT_PASSWORD        = null;
     private final static String PASSWORD                         = null;
@@ -193,6 +194,9 @@ public final class C3P0Defaults
 
     public static String jdbcUrl()
     { return JDBC_URL; }
+
+    public static String markSessionBoundaries()
+    { return MARK_SESSION_BOUNDARIES; }
 
     public static int numHelperThreads()
     { return NUM_HELPER_THREADS; }

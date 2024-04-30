@@ -44,29 +44,39 @@ public final class WrapperConnectionPoolDataSource extends WrapperConnectionPool
 
     private void setUpPropertyListeners()
     {
-	VetoableChangeListener userOverridesListener = new VetoableChangeListener()
+	VetoableChangeListener vetoableChangesListener = new VetoableChangeListener()
+	{
+	    // always called within synchronized mutators of the parent class... needn't explicitly sync here
+	    public void vetoableChange( PropertyChangeEvent evt ) throws PropertyVetoException
 	    {
-		// always called within synchronized mutators of the parent class... needn't explicitly sync here
-		public void vetoableChange( PropertyChangeEvent evt ) throws PropertyVetoException
+		String propName = evt.getPropertyName();
+		Object value = evt.getNewValue();
+
+		if ("userOverridesAsString".equals( propName ))
 		{
-		    String propName = evt.getPropertyName();
-		    Object value = evt.getNewValue();
-
-		    if ("userOverridesAsString".equals( propName ))
+		    try
+			{ setUserOverrides( C3P0ImplUtils.parseUserOverridesAsString( (String) value ) ); } // an unmodifiable map
+		    catch (Exception e)
 			{
-			    try
-				{ setUserOverrides( C3P0ImplUtils.parseUserOverridesAsString( (String) value ) ); } // an unmodifiable map
-			    catch (Exception e)
-				{
-				    if ( logger.isLoggable( MLevel.WARNING ) )
-					logger.log( MLevel.WARNING, "Failed to parse stringified userOverrides. " + value, e );
+			    if ( logger.isLoggable( MLevel.WARNING ) )
+				logger.log( MLevel.WARNING, "Failed to parse stringified userOverrides. " + value, e );
 
-				    throw new PropertyVetoException("Failed to parse stringified userOverrides. " + value, evt);
-				}
+			    throw new PropertyVetoException("Failed to parse stringified userOverrides. " + value, evt);
 			}
 		}
-	    };
-	this.addVetoableChangeListener( userOverridesListener );
+		else if ("contextClassLoaderSource".equals( propName ))
+		{
+		    if (! ("caller".equals(value)||"library".equals(value)||"none".equals(value)))
+			throw new PropertyVetoException("contextClassLoaderSource must be one of 'caller', 'library', or 'none', cannot set to '" + value + "'.", evt);
+		}
+		else if ("markSessionBoundaries".equals( propName ))
+		{
+		    if (! ("always".equals(value)||"never".equals(value)||"if-no-statement-cache".equals(value)))
+			throw new PropertyVetoException("contextClassLoaderSource must be one of 'caller', 'library', or 'none', cannot set to '" + value + "'.", evt);
+		}
+	    }
+	};
+	this.addVetoableChangeListener( vetoableChangesListener );
     }
 
     public WrapperConnectionPoolDataSource( String configName )

@@ -357,6 +357,18 @@ public abstract class AbstractComboPooledDataSource extends AbstractPoolBackedDa
 	}
     }
 
+    public String getMarkSessionBoundaries()
+    { return wcpds.getMarkSessionBoundaries(); }
+
+    public void setMarkSessionBoundaries( String markSessionBoundaries ) throws PropertyVetoException
+    {
+	if ( diff( wcpds.getMarkSessionBoundaries(), markSessionBoundaries ) )
+	{
+	    wcpds.setMarkSessionBoundaries( markSessionBoundaries );
+	    this.resetPoolManager( false );
+	}
+    }
+
     public String getConnectionTesterClassName()
     { return wcpds.getConnectionTesterClassName(); }
 

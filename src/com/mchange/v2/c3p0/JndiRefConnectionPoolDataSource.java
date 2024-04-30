@@ -183,6 +183,12 @@ public final class JndiRefConnectionPoolDataSource extends IdentityTokenResolvab
     public void setInitialPoolSize( int initialPoolSize )
     { wcpds.setInitialPoolSize( initialPoolSize ); }
 
+    public String getMarkSessionBoundaries()
+    { return wcpds.getMarkSessionBoundaries(); }
+
+    public void setMarkSessionBoundaries( String markSessionBoundaries ) throws PropertyVetoException
+    { wcpds.setMarkSessionBoundaries( markSessionBoundaries ); }
+
     public int getMaxIdleTime()
     { return wcpds.getMaxIdleTime(); }
 
@@ -317,6 +323,7 @@ public final class JndiRefConnectionPoolDataSource extends IdentityTokenResolvab
 	referenceMaker.addReferenceProperty("jndiEnv");
 	referenceMaker.addReferenceProperty("jndiLookupCaching");
 	referenceMaker.addReferenceProperty("jndiName");
+	referenceMaker.addReferenceProperty("markSessionBoundaries");
 	referenceMaker.addReferenceProperty("maxAdministrativeTaskTime");
 	referenceMaker.addReferenceProperty("maxConnectionAge");
 	referenceMaker.addReferenceProperty("maxIdleTime");

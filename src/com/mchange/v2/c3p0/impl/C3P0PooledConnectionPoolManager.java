@@ -685,6 +685,18 @@ public final class C3P0PooledConnectionPoolManager
         }
     }
 
+    private String getMarkSessionBoundaries(String userName)
+    {
+        try
+        { return getString("markSessionBoundaries", userName ); }
+        catch (Exception e)
+        {
+            if ( logger.isLoggable( MLevel.FINE ) )
+                logger.log( MLevel.FINE, "Could not fetch String property", e);
+            return C3P0Defaults.markSessionBoundaries();
+        }
+    }
+
     private int getAcquireIncrement(String userName)
     {
         try
@@ -1049,6 +1061,7 @@ public final class C3P0PooledConnectionPoolManager
                                                                       this.getAttemptResurrectOnCheckin( userName ),
 								      this.getMaxStatements( userName ),
 								      this.getMaxStatementsPerConnection( userName ),
+								      this.getMarkSessionBoundaries( userName ),
 								      this.getConnectionTester( userName ),
 								      this.getConnectionCustomizer( userName ),
 								      realTestQuery,

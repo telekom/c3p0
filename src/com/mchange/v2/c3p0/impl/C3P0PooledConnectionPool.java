@@ -53,6 +53,8 @@ public final class C3P0PooledConnectionPool
     final int checkoutTimeout;
     final int connectionIsValidTimeout;
 
+    final boolean disableSessionBoundaries;
+
     final AsynchronousRunner sharedTaskRunner;
     final AsynchronousRunner deferredStatementDestroyer;;
 
@@ -248,7 +250,14 @@ public final class C3P0PooledConnectionPool
 	    return this.requestBoundaryMarker;
 	else
 	{
-	    if (pc instanceof AbstractC3P0PooledConnection)
+	    if (this.disableSessionBoundaries)
+	    {
+		this.requestBoundaryMarker = NO_OP_REQUEST_BOUNDARY_MARKER;
+
+                if (Debug.DEBUG && logger.isLoggable(MLevel.FINE))
+		    logger.log(MLevel.FINE, "Installed no-op request boundary marker due to markSessionBoundaries setting.");
+	    }
+	    else if (pc instanceof AbstractC3P0PooledConnection)
 	    {
 		AbstractC3P0PooledConnection acpc = (AbstractC3P0PooledConnection) pc;
 		Connection conn = acpc.getPhysicalConnection();
@@ -324,7 +333,14 @@ public final class C3P0PooledConnectionPool
                 }
 	    }
 	    else
+	    {
 		this.requestBoundaryMarker = NO_OP_REQUEST_BOUNDARY_MARKER;
+
+		if (logger.isLoggable(MLevel.WARNING))
+		    logger.log(MLevel.WARNING, "Could not mark request boundaries when pooling non-c3p0 PooledConnections.");
+		if (Debug.DEBUG && logger.isLoggable(MLevel.FINE))
+		    logger.log(MLevel.FINE, "Installed no-op request boundary marker, because we are working with non-c3p0 pooled connections, and do not support request boundary marking in this case.");
+	    }
 
 	    return this.requestBoundaryMarker;
 	}
@@ -357,6 +373,7 @@ public final class C3P0PooledConnectionPool
                               boolean attemptResurrectOnCheckin,
 			      int maxStatements,
 			      int maxStatementsPerConnection,
+			      String markSessionBoundaries,
 			      /* boolean statementCacheDeferredClose,      */
 			      final ConnectionTester connectionTester,
 			      final ConnectionCustomizer connectionCustomizer,
@@ -398,6 +415,19 @@ public final class C3P0PooledConnectionPool
 
             this.sharedTaskRunner = taskRunner;
 	    this.deferredStatementDestroyer = deferredStatementDestroyer;
+
+	    if ("always".equalsIgnoreCase(markSessionBoundaries))
+		this.disableSessionBoundaries = false;
+	    else if ("never".equalsIgnoreCase(markSessionBoundaries))
+		this.disableSessionBoundaries = true;
+	    else if ("if-no-statement-cache".equalsIgnoreCase(markSessionBoundaries))
+		this.disableSessionBoundaries = this.scache != null;
+	    else
+		{
+		    if (logger.isLoggable(MLevel.WARNING))
+			logger.log(MLevel.WARNING, "markSessionBoundaries should be one of 'always','never', or 'if-no-statement-cache'. Found illegal value '" + markSessionBoundaries  + "'. Defaulting to 'always'.");
+		    this.disableSessionBoundaries = false;
+		}
 
 	    this.inUseLockFetcher = (c3p0PooledConnections ? C3P0_POOLED_CONNECION_NESTED_LOCK_LOCK_FETCHER : RESOURCE_ITSELF_IN_USE_LOCK_FETCHER);
 
