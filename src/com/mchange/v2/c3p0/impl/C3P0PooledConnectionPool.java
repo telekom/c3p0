@@ -125,14 +125,14 @@ public final class C3P0PooledConnectionPool
 	public void attemptNotifyBeginRequest(PooledConnection pc);
 	public void attemptNotifyEndRequest(PooledConnection pc);
     }
-    private static class NoOpRequestBoundaryMarker implements RequestBoundaryMarker
+
+    private static RequestBoundaryMarker NO_OP_REQUEST_BOUNDARY_MARKER = new RequestBoundaryMarker()
     {
 	public void attemptNotifyBeginRequest(PooledConnection pc) {}
 	public void attemptNotifyEndRequest(PooledConnection pc) {}
-    }
-    private static RequestBoundaryMarker NO_OP_REQUEST_BOUNDARY_MARKER = new NoOpRequestBoundaryMarker();
+    };
 
-    private static class LiveRequestBoundaryMarker implements RequestBoundaryMarker
+    private static RequestBoundaryMarker LIVE_REQUEST_BOUNDARY_MARKER = new RequestBoundaryMarker()
     {
 	public void attemptNotifyBeginRequest(PooledConnection pc)
 	{
@@ -172,7 +172,7 @@ public final class C3P0PooledConnectionPool
 		{ logger.log(MLevel.WARNING, "Error invoking endRequest method for connection", ex); }
 	    }
 	}
-    }
+    };
 
     // we assume (pretty safely I think) that all PooledConnections we see will have the same type
     // and physical connection type
@@ -193,7 +193,7 @@ public final class C3P0PooledConnectionPool
 		    Method endRequest = conn.getClass().getMethod("endRequest");
 		    if (!endRequest.isAccessible()) endRequest.setAccessible(true);
 		    logger.log(MLevel.FINEST, "Request boundary methods found");
-		    this.requestBoundaryMarker = new LiveRequestBoundaryMarker();
+		    this.requestBoundaryMarker = LIVE_REQUEST_BOUNDARY_MARKER;
 		}
 		catch (NoSuchMethodException ex)
 		{
