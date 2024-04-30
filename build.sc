@@ -358,4 +358,9 @@ object c3p0 extends RootModule with JavaModule with PublishModule {
       )
     )
   }
+
+  // intended to publish development snapshots, not for stable releases
+  val MchangeStaging = "/Users/swaldman/development/gitproj/www.mchange.com/repository"
+
+  def publishMchange() = this.publishM2Local( MchangeStaging )
 }
