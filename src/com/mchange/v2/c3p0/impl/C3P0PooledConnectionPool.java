@@ -132,7 +132,7 @@ public final class C3P0PooledConnectionPool
 	public void attemptNotifyEndRequest(PooledConnection pc) {}
     };
 
-    private static RequestBoundaryMarker LIVE_REQUEST_BOUNDARY_MARKER = new RequestBoundaryMarker()
+    private static RequestBoundaryMarker INTERFACE_REQUEST_BOUNDARY_MARKER = new RequestBoundaryMarker()
     {
 	public void attemptNotifyBeginRequest(PooledConnection pc)
 	{
@@ -143,14 +143,20 @@ public final class C3P0PooledConnectionPool
 		try
 		{
                     conn.beginRequest();
-		    logger.log(MLevel.FINEST, "beginRequest method called");
+
+                    if (Debug.DEBUG && logger.isLoggable(MLevel.FINEST))
+                        logger.log(MLevel.FINEST, "beginRequest method called");
 		}
                 catch (AbstractMethodError ame)
                 {
-                    logger.log(MLevel.WARNING, "AbstractMethodError invoking beginRequest method for Connction, even though Connections were tested for the presence of this method previously.", ame);
+                    if (logger.isLoggable(MLevel.WARNING))
+                        logger.log(MLevel.WARNING, "AbstractMethodError invoking beginRequest method for Connction, even though Connections were tested for the presence of this method previously.", ame);
                 }
 		catch (Exception ex)
-		{ logger.log(MLevel.WARNING, "Error invoking beginRequest method for connection", ex); }
+		{
+                    if (logger.isLoggable(MLevel.WARNING))
+                        logger.log(MLevel.WARNING, "Error invoking beginRequest method for connection", ex);
+                }
 	    }
 	}
 	public void attemptNotifyEndRequest(PooledConnection pc)
@@ -162,17 +168,77 @@ public final class C3P0PooledConnectionPool
 		try
 		{
                     conn.endRequest();
-		    logger.log(MLevel.FINEST, "endRequest method called");
+
+                    if (Debug.DEBUG && logger.isLoggable(MLevel.FINEST))
+                        logger.log(MLevel.FINEST, "endRequest method called");
 		}
                 catch (AbstractMethodError ame)
                 {
-                    logger.log(MLevel.WARNING, "AbstractMethodError invoking endRequest method for Connction, even though Connections were tested for the presence of this method previously.", ame);
+                    if (logger.isLoggable(MLevel.WARNING))
+                        logger.log(MLevel.WARNING, "AbstractMethodError invoking endRequest method for Connction, even though Connections were tested for the presence of this method previously.", ame);
                 }
 		catch (Exception ex)
-		{ logger.log(MLevel.WARNING, "Error invoking endRequest method for connection", ex); }
+		{
+                    if (logger.isLoggable(MLevel.WARNING))
+                        logger.log(MLevel.WARNING, "Error invoking endRequest method for connection", ex);
+                }
 	    }
 	}
     };
+
+    private static class ReflectiveRequestBoundaryMarker implements RequestBoundaryMarker
+    {
+	Method beginRequest;
+	Method endRequest;
+
+	ReflectiveRequestBoundaryMarker(Method beginRequest, Method endRequest)
+	{
+	    this.beginRequest = beginRequest;
+	    this.endRequest   = endRequest;
+            if (!beginRequest.isAccessible()) beginRequest.setAccessible(true);
+            if (!endRequest.isAccessible()) endRequest.setAccessible(true);
+	}
+	public void attemptNotifyBeginRequest(PooledConnection pc)
+	{
+	    if (pc instanceof AbstractC3P0PooledConnection)
+	    {
+		AbstractC3P0PooledConnection acpc = (AbstractC3P0PooledConnection) pc;
+		Connection conn = acpc.getPhysicalConnection();
+		try
+		{
+		    beginRequest.invoke(conn);
+
+                    if (Debug.DEBUG && logger.isLoggable(MLevel.FINEST))
+                        logger.log(MLevel.FINEST, "beginRequest method called");
+		}
+		catch (Exception ex)
+		{
+                    if (logger.isLoggable(MLevel.WARNING))
+                        logger.log(MLevel.WARNING, "Error invoking beginRequest method for connection", ex);
+                }
+	    }
+	}
+	public void attemptNotifyEndRequest(PooledConnection pc)
+	{
+	    if (pc instanceof AbstractC3P0PooledConnection)
+	    {
+		AbstractC3P0PooledConnection acpc = (AbstractC3P0PooledConnection) pc;
+		Connection conn = acpc.getPhysicalConnection();
+		try
+		{
+		    endRequest.invoke(conn);
+
+                    if (Debug.DEBUG && logger.isLoggable(MLevel.FINEST))
+                        logger.log(MLevel.FINEST, "endRequest method called");
+		}
+		catch (Exception ex)
+		{
+                    if (logger.isLoggable(MLevel.WARNING))
+                        logger.log(MLevel.WARNING, "Error invoking endRequest method for connection", ex);
+                }
+	    }
+	}
+    }
 
     // we assume (pretty safely I think) that all PooledConnections we see will have the same type
     // and physical connection type
@@ -189,23 +255,73 @@ public final class C3P0PooledConnectionPool
 		try
 		{
 		    Method beginRequest = conn.getClass().getMethod("beginRequest");
-		    if (!beginRequest.isAccessible()) beginRequest.setAccessible(true);
 		    Method endRequest = conn.getClass().getMethod("endRequest");
-		    if (!endRequest.isAccessible()) endRequest.setAccessible(true);
-		    logger.log(MLevel.FINEST, "Request boundary methods found");
-		    this.requestBoundaryMarker = LIVE_REQUEST_BOUNDARY_MARKER;
+
+                    if (Debug.DEBUG && logger.isLoggable(MLevel.FINEST))
+                        logger.log(MLevel.FINEST, "Request boundary methods found.");
+
+                    boolean intfc_has_methods;
+                    try
+                    {
+                        Method intfcBeginRequest = Connection.class.getMethod("beginRequest");
+                        Method intfcEndRequest = Connection.class.getMethod("endRequest");
+
+                        if (Debug.DEBUG && logger.isLoggable(MLevel.FINEST))
+                            logger.log(MLevel.FINEST, "Interface request boundary methods found.");
+
+                        intfc_has_methods = true;
+                    }
+                    catch (NoSuchMethodException e)
+                    { intfc_has_methods = false; }
+
+                    if (intfc_has_methods)
+                    {
+                        this.requestBoundaryMarker = INTERFACE_REQUEST_BOUNDARY_MARKER;
+
+                        if (Debug.DEBUG && logger.isLoggable(MLevel.FINE))
+                            logger.log(MLevel.FINE, "Installed interface-based request boundary marker.");
+                    }
+                    else
+                    {
+                        this.requestBoundaryMarker = new ReflectiveRequestBoundaryMarker(beginRequest, endRequest);
+
+                        if (Debug.DEBUG && logger.isLoggable(MLevel.FINE))
+                            logger.log(MLevel.FINE, "Installed reflective request boundary marker.");
+                    }
 		}
-		catch (NoSuchMethodException ex)
+		catch (NoSuchMethodException nsme)
 		{
 		    // let methods be null, driver does not implement them
-		    logger.log(MLevel.WARNING, "Request boundary methods not found.");
+                    if (logger.isLoggable(MLevel.WARNING))
+                        logger.log(MLevel.WARNING, "Request boundary methods not found.");
+
 		    this.requestBoundaryMarker = NO_OP_REQUEST_BOUNDARY_MARKER;
+
+                    if (Debug.DEBUG && logger.isLoggable(MLevel.FINE))
+                        logger.log(MLevel.FINE, "Installed no-op request boundary marker, because request boundary methods not found.");
 		}
-		catch (SecurityException securityException)
+		catch (SecurityException se)
 		{
-		    logger.log(MLevel.WARNING, "Could not make boundary methods accessible.");
+                    if (logger.isLoggable(MLevel.WARNING))
+                        logger.log(MLevel.WARNING, "Could not make boundary methods accessible.");
+                    if (Debug.DEBUG && logger.isLoggable(MLevel.FINE))
+                        logger.log(MLevel.FINE, "SecurityException:", se);
+
 		    this.requestBoundaryMarker = NO_OP_REQUEST_BOUNDARY_MARKER;
+
+                    if (Debug.DEBUG && logger.isLoggable(MLevel.FINE))
+                        logger.log(MLevel.FINE, "Installed no-op request boundary marker, because request boundary methods could not be made accessible.");
 		}
+                catch (Exception e)
+                {
+                    if (logger.isLoggable(MLevel.WARNING))
+                        logger.log(MLevel.WARNING, "An unexpected Exception occurred while querying request boundary methods.", e);
+
+		    this.requestBoundaryMarker = NO_OP_REQUEST_BOUNDARY_MARKER;
+
+                    if (Debug.DEBUG && logger.isLoggable(MLevel.FINE))
+                        logger.log(MLevel.FINE, "Installed no-op request boundary marker, because an unexpected exception occurred while querying request boundary methods.");
+                }
 	    }
 	    else
 		this.requestBoundaryMarker = NO_OP_REQUEST_BOUNDARY_MARKER;
