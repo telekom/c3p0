@@ -1225,6 +1225,15 @@ CLOB oracleCLOB = (CLOB) castCon.rawConnectionOperation(m, null, args);
 	If you need more than one Thread dedicated solely to Statement destruction, you probably should set <tt>maxStatements</tt> and/or
 	<tt>maxStatementsPerConnection</tt> to higher values so you don't churn through cached Statements so quickly.
       </p>
+      <div class="boxed">
+	<b>
+	  Note: If you enable statement caching and see log mesages like "Problem with checked-in Statement, discarding.",
+          and then stack traces indicating a Statement is unexpectedly closed, your JDBC driver may be automatically closing
+          unclosed Statements at the end of marked user sessions. This behavior interferes with Statement caching.
+          Try setting <a href="#markSessionBoundaries">markSessionBoundaries</a> to <tt>if-no-statement-cache</tt>
+          or <tt>never</tt> to address the problem.
+	</b>
+      </div>
       <h3>
 	<a name="configuring_recovery">Configuring Recovery From Database Outages</a>
 	<span class="toplink"><a href="#contents"><img src="arrow_sm.png" width="20" alt="Go To Top"/></a></span>
@@ -1573,6 +1582,7 @@ public final class FixedThreadPoolExecutorTaskRunnerFactory extends AbstractExec
 	<li><a class="cfg_param" href="#checkoutTimeout">checkoutTimeout</a></li>
 	<li><a class="cfg_param" href="#factoryClassLocation">factoryClassLocation</a></li>
 	<li><a class="cfg_param" href="#forceSynchronousCheckins">forceSynchronousCheckins</a></li>
+	<li><a class="cfg_param" href="#markSessionBoundaries">markSessionBoundaries</a></li>
       </ul>
       <p>
         When Connections throw Exceptions in client sessions, c3p0 tests them, and if they fail, marks them
@@ -1603,6 +1613,18 @@ public final class FixedThreadPoolExecutorTaskRunnerFactory extends AbstractExec
 	this setting is likely to improve performance. However, if Connections <i>are</i> tested on check-in,
 	or custom work is performed, setting <tt>forceSynchronousCheckins</tt> will cause clients to experience
 	delays associated with that work when they call <tt>Connection.close()</tt>.
+      </p>
+      <p>
+        <tt>markSessionBoundaries</tt> can be used to disable c3p0's default behavior, which is to
+	call the `beginRequest` method on checkout and `endRequest` method on check-in for drivers that support
+	the <a href="https://download.oracle.com/otn-pub/jcp/jdbc-4_3-mrel3-eval-spec/jdbc4.3-fr-spec.pdf">JDBC 4.3</a> methods.
+	These methods are hints to the JDBC driver, marking the beginning and end of a single client session.
+	However, some drivers react to these hints in ways you may not want. In particular, some close unclosed statements
+	at the end of a user-session, breaking c3p0-level <tt>Statement</tt> caching.
+	Legal values for <tt>markSessionBoundaries</tt> are <tt>always</tt>, <tt>never</tt>, and <tt>if-no-statement-cache</tt>.
+	The first two values are self-explanatory. The last will mark statement boundaries if and only if statement-caching is not
+	configured, that is if both <a class="cfg_param" href="#maxStatements">maxStatements</a> and <a class="cfg_param" href="#maxStatementsPerConnection">maxStatementsPerConnection</a>
+	are left at their default of zero.
       </p>
       <h3>
 	<a name="jmx_configuration_and_management">Configuring and Managing c3p0 via JMX</a>
@@ -2268,15 +2290,16 @@ c3p0 {
 	    <a href="#idleConnectionTestPeriod">idleConnectionTestPeriod</a><br/>
 	    <a href="#initialPoolSize">initialPoolSize</a><br/>
 	    <a href="#jdbcUrl">jdbcUrl</a><br/>
+	    <a href="#markSessionBoundaries">markSessionBoundaries</a><br/>
 	    <a href="#maxAdministrativeTaskTime">maxAdministrativeTaskTime</a><br/>
 	    <a href="#maxConnectionAge">maxConnectionAge</a><br/>
 	    <a href="#maxIdleTime">maxIdleTime</a><br/>
 	    <a href="#maxIdleTimeExcessConnections">maxIdleTimeExcessConnections</a><br/>
 	    <a href="#maxPoolSize">maxPoolSize</a><br/>
 	    <a href="#maxStatements">maxStatements</a><br/>
-	    <a href="#maxStatementsPerConnection">maxStatementsPerConnection</a><br/>
 	  </td>
 	  <td>
+	    <a href="#maxStatementsPerConnection">maxStatementsPerConnection</a><br/>
 	    <a href="#minPoolSize">minPoolSize</a><br/>
 	    <a href="#numHelperThreads">numHelperThreads</a><br/>
 	    <a href="#overrideDefaultUser">overrideDefaultUser</a><br/>
@@ -2390,6 +2413,7 @@ c3p0 {
 	    The number of milliseconds a client calling getConnection() will wait for a Connection to be checked-in or acquired
 	    when the pool is exhausted. Zero means wait indefinitely. Setting any positive value will cause the getConnection()
 	    call to time-out and break with an <tt>SQLException</tt> after the specified number of milliseconds.
+	    [See <a href="#other_ds_configuration">"Other DataSource Configuration"</a>]
 	  </div>
 	</dd>
 	<dt><a name="connectionCustomizerClassName" />connectionCustomizerClassName</dt>
@@ -2585,6 +2609,21 @@ c3p0 {
 	  </div>
 	  <div class="per-user">Does Not Support Per-User Overrides.</div>
 	</dd>
+	<dt><a name="markSessionBoundaries" />markSessionBoundaries</dt>
+	<dd>
+	  <div class="default">Default: always</div>
+	  <div class="propdesc">
+	    One of <tt>always</tt>, <tt>never</tt>, or <tt>if-no-statement-cache</tt>. Defines whether session boundaries
+	    will be marked by calling the <tt>beginRequest</tt> and <tt>endRequest</tt> methods of <tt>Connection</tt>
+	    on connection checkout and checkin respectively. These methods are optional hints to the JDBC driver, helping
+	    them manage user session. Almost always the default of, um, <tt>always</tt> will be best, but occasionally JDBC drivers
+	    respond to these hints undesirably. In particular, some JDBC drivers close unclosed <tt>Statement</tt> objects
+	    when <tt>endRequest</tt> is called. Setting this parameter to <tt>never</tt> disables session-boundary marking
+	    entirely. Setting this parameter to <tt>if-no-statement-cache</tt> enables session-boundary marking if and only
+	    if no statement cache is configured (that is if both <a href="#maxStatements">maxStatements</a> and
+	    <a href="#maxStatementsPerConnection">maxStatementsPerConnection</a> are configured to their defaults of zero).
+	    [See <a href="#other_ds_configuration">"Other DataSource Configuration"</a>]
+	  </div>
 	<dt><a name="maxAdministrativeTaskTime" />maxAdministrativeTaskTime</dt>
 	<dd>
 	  <div class="default">Default: 0</div>
@@ -2606,6 +2645,7 @@ c3p0 {
 	    would be expected to succeed or fail within the time set. Zero (the default) means tasks are never interrupted,
 	    which is the best and safest policy under most circumstances. If tasks are just slow, allocate more threads. If tasks
 	    are hanging forever, try to figure out why, and maybe setting <tt>maxAdministrativeTaskTime</tt> can help in the meantime.
+            [See <a href="#configuring_threading">"Configuring Threading"</a>]
 	  </div>
 	  <div class="per-user">Does Not Support Per-User Overrides.</div>
 	</dd>
@@ -2616,7 +2656,7 @@ c3p0 {
 	    Seconds, effectively a time to live. A Connection older than <tt>maxConnectionAge</tt> will be destroyed and
 	    purged from the pool. This differs from <tt>maxIdleTime</tt> in that it refers to absolute age. Even a Connection
 	    which has not been much idle will be purged from the pool if it exceeds <tt>maxConnectionAge</tt>. Zero means
-	    no maximum absolute age is enforced.
+	    no maximum absolute age is enforced. [See <a href="#managing_pool_size">Managing Pool Size and Connection Age</a>]
 	  </div>
 	</dd>
 	<dt><a name="maxIdleTime" />maxIdleTime</dt>
@@ -2636,6 +2676,7 @@ c3p0 {
 		shrinking the pool back towards minPoolSize if, following a spike, the load level diminishes and Connections
 		acquired are no longer needed. If <tt>maxIdleTime</tt> is set, <tt>maxIdleTimeExcessConnections</tt> should be
 		smaller if the parameter is to have any effect. Zero means no enforcement, excess Connections are not idled out.
+                [See <a href="#managing_pool_size">Managing Pool Size and Connection Age</a>]
 	  </div>
 	</dd>
 	<dt><a name="maxPoolSize"/>maxPoolSize</dt>
