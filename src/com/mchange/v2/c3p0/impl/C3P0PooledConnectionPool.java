@@ -12,6 +12,7 @@ import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.util.LinkedList;
 import java.util.WeakHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 import javax.sql.ConnectionEvent;
 import javax.sql.ConnectionEventListener;
@@ -56,9 +57,9 @@ public final class C3P0PooledConnectionPool
     final boolean disableSessionBoundaries;
 
     final AsynchronousRunner sharedTaskRunner;
-    final AsynchronousRunner deferredStatementDestroyer;;
+    final AsynchronousRunner deferredStatementDestroyer;
 
-    final InUseLockFetcher inUseLockFetcher;
+    final AbstractInternalUseLockManager internalUseLockManager;
 
     //MT: protected by this' lock
     private RequestBoundaryMarker requestBoundaryMarker;
@@ -90,37 +91,46 @@ public final class C3P0PooledConnectionPool
     }
 
     /**
-     *  This "lock fetcher" crap is a lot of ado about very little.
+     *  This "internal use lock" crap is a lot of ado about very little.
      *  In theory, there is a hazard that pool maintenance tasks could
      *  get sufficiently backed up in the Thread pool that say, multple
      *  Connection tests might run simultaneously. That would be okay,
      *  but the Statement cache's "mark-in-use" functionality doesn't
      *  track nested use of resources. So we enforce exclusive, sequential
      *  execution of internal tests by requiring the tests hold a lock.
-     *  But what lock to hold? The obvious choice is the tested resource's
-     *  lock, but NewPooledConnection is designed for use by clients that
-     *  do not hold its lock. So, we give NewPooledConnection an internal
-     *  Object, an "inInternalUseLock", and lock on this resource instead.
      */
-
-    private interface InUseLockFetcher
+    private static abstract class AbstractInternalUseLockManager
     {
-	public Object getInUseLock(Object resc);
+	abstract ReentrantLock getInternalUseLock(Object resc);
+
+	public void lockInternalUse(Object resc)   { getInternalUseLock(resc).lock(); }
+	public void unlockInternalUse(Object resc) { getInternalUseLock(resc).unlock(); }
     }
 
-    private static class ResourceItselfInUseLockFetcher implements InUseLockFetcher
+    private static class WeakHashMapInternalUseLockManager extends AbstractInternalUseLockManager
     {
-	public Object getInUseLock(Object resc) { return resc; }
+        WeakHashMap inUseLocks = new WeakHashMap();
+
+	synchronized ReentrantLock getInternalUseLock(Object resc)
+        {
+            ReentrantLock out = (ReentrantLock) inUseLocks.get(resc);
+            if (out == null)
+            {
+                out = new ReentrantLock();
+                inUseLocks.put( resc, out );
+            }
+            return out;
+        }
+
+	public synchronized void lockInternalUse(Object resc)   { super.lockInternalUse(resc); }
+	public synchronized void unlockInternalUse(Object resc) { super.unlockInternalUse(resc); }
     }
 
-    private static class C3P0PooledConnectionNestedLockLockFetcher implements InUseLockFetcher
+    private static class C3P0PooledConnectionNestedLockInternalUseLockManager extends AbstractInternalUseLockManager
     {
-	public Object getInUseLock(Object resc)
+	ReentrantLock getInternalUseLock(Object resc)
 	{ return ((AbstractC3P0PooledConnection) resc).inInternalUseLock; }
     }
-
-    private static InUseLockFetcher RESOURCE_ITSELF_IN_USE_LOCK_FETCHER = new ResourceItselfInUseLockFetcher();
-    private static InUseLockFetcher C3P0_POOLED_CONNECION_NESTED_LOCK_LOCK_FETCHER = new C3P0PooledConnectionNestedLockLockFetcher();
 
     private interface RequestBoundaryMarker
     {
@@ -429,7 +439,7 @@ public final class C3P0PooledConnectionPool
 		    this.disableSessionBoundaries = false;
 		}
 
-	    this.inUseLockFetcher = (c3p0PooledConnections ? C3P0_POOLED_CONNECION_NESTED_LOCK_LOCK_FETCHER : RESOURCE_ITSELF_IN_USE_LOCK_FETCHER);
+	    this.internalUseLockManager = (c3p0PooledConnections ? new C3P0PooledConnectionNestedLockInternalUseLockManager() : new WeakHashMapInternalUseLockManager());
 
             class PooledConnectionResourcePoolManager implements ResourcePool.Manager
             {
@@ -533,7 +543,7 @@ public final class C3P0PooledConnectionPool
                         Connection con = null;
                         try
                         {
-                            waitMarkPooledConnectionInUse(out);
+                            scacheWaitMarkPooledConnectionInUse(out);
                             con = out.getConnection();
                             SQLWarnings.logAndClearWarnings( con );
                         }
@@ -542,7 +552,7 @@ public final class C3P0PooledConnectionPool
                             //invalidate the proxy Connection
                             ConnectionUtils.attemptClose( con );
 
-                            unmarkPooledConnectionInUse(out);
+                            scacheUnmarkPooledConnectionInUse(out);
                         }
 
                         return out;
@@ -582,15 +592,16 @@ public final class C3P0PooledConnectionPool
 
                 public void refurbishResourceOnCheckout( Object resc ) throws Exception
                 {
-		    synchronized (inUseLockFetcher.getInUseLock(resc))
+                    try
 		    {
+                        internalUseLockManager.lockInternalUse(resc);
 			if ( connectionCustomizer != null )
 			{
 			    Connection physicalConnection = null;
 			    try
 			    {
 				physicalConnection =  ((AbstractC3P0PooledConnection) resc).getPhysicalConnection();
-				waitMarkPhysicalConnectionInUse( physicalConnection );
+				scacheWaitMarkPhysicalConnectionInUse( physicalConnection );
 				if ( testConnectionOnCheckout )
 				{
 				    if ( Debug.DEBUG && logger.isLoggable( MLevel.FINER ) )
@@ -607,7 +618,7 @@ public final class C3P0PooledConnectionPool
 							      "; ConnectionPoolDataSource: " + cpds.getClass().getName(), e);
 			    }
 			    finally
-			    { unmarkPhysicalConnectionInUse(physicalConnection); }
+			    { scacheUnmarkPhysicalConnectionInUse(physicalConnection); }
 			}
 			else
 			{
@@ -616,7 +627,7 @@ public final class C3P0PooledConnectionPool
 				PooledConnection pc = (PooledConnection) resc;
 				try
 				{
-				    waitMarkPooledConnectionInUse( pc );
+				    scacheWaitMarkPooledConnectionInUse( pc );
 
 				    if ( Debug.DEBUG && logger.isLoggable( MLevel.FINER ) )
 					finerLoggingTestPooledConnection( pc, "CHECKOUT" );
@@ -625,11 +636,13 @@ public final class C3P0PooledConnectionPool
 				}
 				finally
 				{
-				    unmarkPooledConnectionInUse(pc);
+				    scacheUnmarkPooledConnectionInUse(pc);
 				}
 			    }
 			}
 		    }
+                    finally
+                    { internalUseLockManager.unlockInternalUse(resc); }
                 }
 
 		// TODO: refactor this by putting the connectionCustomizer if logic inside the (currently repeated) logic
@@ -639,8 +652,9 @@ public final class C3P0PooledConnectionPool
                     boolean attemptResurrect = (resurrectables != null && resurrectables.checkResurrectable(resc));
 		    try
 		    {
-		      synchronized (inUseLockFetcher.getInUseLock(resc))
+                      try
 		      {
+                        internalUseLockManager.lockInternalUse(resc);
 			if ( connectionCustomizer != null )
 			{
 			    Connection physicalConnection = null;
@@ -649,7 +663,7 @@ public final class C3P0PooledConnectionPool
 				physicalConnection =  ((AbstractC3P0PooledConnection) resc).getPhysicalConnection();
 
 				// so by the time we are checked in, all marked-for-destruction statements should be closed.
-				waitMarkPhysicalConnectionInUse( physicalConnection );
+				scacheWaitMarkPhysicalConnectionInUse( physicalConnection );
 				connectionCustomizer.onCheckIn( physicalConnection, parentDataSourceIdentityToken );
 				SQLWarnings.logAndClearWarnings( physicalConnection );
 
@@ -669,7 +683,7 @@ public final class C3P0PooledConnectionPool
 							      "; ConnectionPoolDataSource: " + cpds.getClass().getName(), e);
 			    }
 			    finally
-			    { unmarkPhysicalConnectionInUse(physicalConnection); }
+			    { scacheUnmarkPhysicalConnectionInUse(physicalConnection); }
 			}
 			else
 			{
@@ -680,7 +694,7 @@ public final class C3P0PooledConnectionPool
 			    {
 
 				// so by the time we are checked in, all marked-for-destruction statements should be closed.
-				waitMarkPooledConnectionInUse( pc );
+				scacheWaitMarkPooledConnectionInUse( pc );
 				con = pc.getConnection();
 				SQLWarnings.logAndClearWarnings(con);
 
@@ -696,10 +710,13 @@ public final class C3P0PooledConnectionPool
 			    finally
 			    {
 				proxyToClose = con;
-				unmarkPooledConnectionInUse( pc );
+				scacheUnmarkPooledConnectionInUse( pc );
 			    }
 			}
 		      }
+                      finally
+                      { internalUseLockManager.unlockInternalUse(resc); }
+
                       // if we haven't failed the test by throwing then...
                       if (Debug.DEBUG && logger.isLoggable(MLevel.FINE) && attemptResurrect)
                           logger.log(MLevel.FINE, "A resource that had previously experienced a Connection error has been successfully resurrected on checkin: " + resc);
@@ -713,20 +730,23 @@ public final class C3P0PooledConnectionPool
 
                 public void refurbishIdleResource( Object resc ) throws Exception
                 {
-		    synchronized (inUseLockFetcher.getInUseLock(resc))
+                    try
 		    {
+                        internalUseLockManager.lockInternalUse(resc);
 			PooledConnection pc = (PooledConnection) resc;
 			try
 			{
-			    waitMarkPooledConnectionInUse( pc );
+			    scacheWaitMarkPooledConnectionInUse( pc );
 			    if ( Debug.DEBUG && logger.isLoggable( MLevel.FINER ) )
 				finerLoggingTestPooledConnection( resc, "IDLE CHECK" );
 			    else
 				testPooledConnection( resc );
 			}
 			finally
-			{ unmarkPooledConnectionInUse( pc ); }
+			{ scacheUnmarkPooledConnectionInUse( pc ); }
 		    }
+                    finally
+                    { internalUseLockManager.unlockInternalUse(resc); }
                 }
 
                 private void finerLoggingTestPooledConnection(Object resc, String testImpetus) throws Exception
@@ -759,18 +779,19 @@ public final class C3P0PooledConnectionPool
                 private void testPooledConnection(Object resc, Connection proxyConn) throws Exception
                 {
                     PooledConnection pc = (PooledConnection) resc;
-		    assert !Boolean.FALSE.equals(pooledConnectionInUse( pc )); //null or true are okay
+		    assert !Boolean.FALSE.equals(scachePooledConnectionInUse( pc )); //null or true are okay
 
                     connectionTestPath.testPooledConnection( pc, proxyConn );
                 }
 
                 public void destroyResource(Object resc, boolean checked_out) throws Exception
                 {
-		    synchronized (inUseLockFetcher.getInUseLock(resc))
+                    try
 		    {
+                        internalUseLockManager.lockInternalUse(resc);
 			try
 			    {
-				waitMarkPooledConnectionInUse((PooledConnection) resc);
+				scacheWaitMarkPooledConnectionInUse((PooledConnection) resc);
 
 				if ( connectionCustomizer != null )
 				    {
@@ -829,8 +850,10 @@ public final class C3P0PooledConnectionPool
 				throw e;
 			    }
 			finally
-			    { unmarkPooledConnectionInUse((PooledConnection) resc); }
+			    { scacheUnmarkPooledConnectionInUse((PooledConnection) resc); }
 		    }
+                    finally
+                    { internalUseLockManager.unlockInternalUse(resc); }
 		}
             }
 
@@ -867,7 +890,7 @@ public final class C3P0PooledConnectionPool
         //System.err.println(this + " -- CHECKOUT");
         try
 	    {
-		PooledConnection pc = (PooledConnection) this.checkoutAndMarkConnectionInUse();
+		PooledConnection pc = (PooledConnection) this.checkoutAndScacheMarkConnectionInUse();
 		pc.addConnectionEventListener( cl );
 		markBeginRequest(pc);
 		return pc;
@@ -880,42 +903,42 @@ public final class C3P0PooledConnectionPool
         { throw SqlUtils.toSQLException(e); }
     }
 
-    private void waitMarkPhysicalConnectionInUse(Connection physicalConnection) throws InterruptedException
+    private void scacheWaitMarkPhysicalConnectionInUse(Connection physicalConnection) throws InterruptedException
     {
         if (scache != null)
             scache.waitMarkConnectionInUse(physicalConnection);
     }
 
-    private boolean tryMarkPhysicalConnectionInUse(Connection physicalConnection)
+    private boolean scacheTryMarkPhysicalConnectionInUse(Connection physicalConnection)
     { return (scache != null ? scache.tryMarkConnectionInUse(physicalConnection) : true); }
 
-    private void unmarkPhysicalConnectionInUse(Connection physicalConnection)
+    private void scacheUnmarkPhysicalConnectionInUse(Connection physicalConnection)
     {
         if (scache != null)
             scache.unmarkConnectionInUse(physicalConnection);
     }
 
-    private void waitMarkPooledConnectionInUse(PooledConnection pooledCon) throws InterruptedException
+    private void scacheWaitMarkPooledConnectionInUse(PooledConnection pooledCon) throws InterruptedException
     {
 	if (c3p0PooledConnections)
-	    waitMarkPhysicalConnectionInUse(((AbstractC3P0PooledConnection) pooledCon).getPhysicalConnection());
+	    scacheWaitMarkPhysicalConnectionInUse(((AbstractC3P0PooledConnection) pooledCon).getPhysicalConnection());
     }
 
-    private boolean tryMarkPooledConnectionInUse(PooledConnection pooledCon)
+    private boolean scacheTryMarkPooledConnectionInUse(PooledConnection pooledCon)
     {
 	if (c3p0PooledConnections)
-	    return tryMarkPhysicalConnectionInUse(((AbstractC3P0PooledConnection) pooledCon).getPhysicalConnection());
+	    return scacheTryMarkPhysicalConnectionInUse(((AbstractC3P0PooledConnection) pooledCon).getPhysicalConnection());
 	else
 	    return true;
     }
 
-    private void unmarkPooledConnectionInUse(PooledConnection pooledCon)
+    private void scacheUnmarkPooledConnectionInUse(PooledConnection pooledCon)
     {
 	if (c3p0PooledConnections)
-	    unmarkPhysicalConnectionInUse(((AbstractC3P0PooledConnection) pooledCon).getPhysicalConnection());
+	    scacheUnmarkPhysicalConnectionInUse(((AbstractC3P0PooledConnection) pooledCon).getPhysicalConnection());
     }
 
-    private Boolean physicalConnectionInUse(Connection physicalConnection) throws InterruptedException
+    private Boolean scachePhysicalConnectionInUse(Connection physicalConnection) throws InterruptedException
     {
         if (physicalConnection != null && scache != null)
             return scache.inUse(physicalConnection);
@@ -923,7 +946,7 @@ public final class C3P0PooledConnectionPool
 	    return null;
     }
 
-    private Boolean pooledConnectionInUse(PooledConnection pc) throws InterruptedException
+    private Boolean scachePooledConnectionInUse(PooledConnection pc) throws InterruptedException
     {
         if (pc != null && scache != null)
             return scache.inUse(((AbstractC3P0PooledConnection) pc).getPhysicalConnection());
@@ -931,9 +954,7 @@ public final class C3P0PooledConnectionPool
 	    return null;
     }
 
-
-
-    private Object checkoutAndMarkConnectionInUse() throws TimeoutException, CannotAcquireResourceException, ResourcePoolException, InterruptedException
+    private Object checkoutAndScacheMarkConnectionInUse() throws TimeoutException, CannotAcquireResourceException, ResourcePoolException, InterruptedException
     {
         Object out = null;
 	boolean success = false;
@@ -947,7 +968,7 @@ public final class C3P0PooledConnectionPool
 				// cast should succeed, because scache != null implies c3p0 pooled Connections
 				AbstractC3P0PooledConnection acpc = (AbstractC3P0PooledConnection) out;
 				Connection physicalConnection = acpc.getPhysicalConnection();
-				success = tryMarkPhysicalConnectionInUse(physicalConnection);
+				success = scacheTryMarkPhysicalConnectionInUse(physicalConnection);
 			    }
 			else
 			    success = true; //we don't pool statements from non-c3p0 PooledConnections
@@ -961,7 +982,7 @@ public final class C3P0PooledConnectionPool
         return out;
     }
 
-    private void unmarkConnectionInUseAndCheckin(PooledConnection pcon) throws ResourcePoolException
+    private void scacheUnmarkConnectionInUseAndCheckin(PooledConnection pcon) throws ResourcePoolException
     {
         if (scache != null)
         {
@@ -971,7 +992,7 @@ public final class C3P0PooledConnectionPool
                 // but clients can try to check-in whatever they want, so there are potential failures here
                 AbstractC3P0PooledConnection acpc = (AbstractC3P0PooledConnection) pcon;
                 Connection physicalConnection = acpc.getPhysicalConnection();
-                unmarkPhysicalConnectionInUse(physicalConnection);
+                scacheUnmarkPhysicalConnectionInUse(physicalConnection);
             }
             catch (ClassCastException e)
             {
@@ -992,7 +1013,7 @@ public final class C3P0PooledConnectionPool
         try
 	    {
 		pcon.removeConnectionEventListener( cl );
-		unmarkConnectionInUseAndCheckin( pcon );
+		scacheUnmarkConnectionInUseAndCheckin( pcon );
 		markEndRequest( pcon );
 	    }
         catch (ResourcePoolException e)
