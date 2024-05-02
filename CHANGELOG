@@ -1,3 +1,7 @@
+	-- Implement config parameter markSessionBoundaries, so that users can
+	   disable JDBC 4.3 beginRequest / endRequest session boundary marking
+	   when JDBC drivers so undesirable things with those hints.
+	   Thanks Bikas Anand!
 	-- Implement more careful examination of begin/endRequest methods, to take
 	   into account the case where those methods exist on the JDBC driver Connection
 	   implementation, but not in the Connection interface of a pre-Java-9 JVM.
