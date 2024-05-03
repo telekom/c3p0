@@ -93,7 +93,6 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
 
         protected void generateDelegateCode( Class intfcl, String genclass, Method method, IndentedWriter iw ) throws IOException 
         {
-	    
             String mname   = method.getName();
 	    if ( jdbc4WrapperMethod( mname ) )
 	    {
@@ -459,7 +458,6 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
         { return "Connection"; }
 
         {
-            this.setMethodModifiers( Modifier.PUBLIC | Modifier.SYNCHRONIZED );
             this.setExtraInterfaces( new Class[] { C3P0ProxyConnection.class } );
         }
 
@@ -749,6 +747,8 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
 
         protected void generateExtraDeclarations( Class intfcl, String genclass, IndentedWriter iw ) throws IOException
         {
+            iw.println("ReentrantLock lock = new ReentrantLock();");
+            iw.println();
             iw.println("boolean txn_known_resolved = true;");
             iw.println();
             iw.println("DatabaseMetaData metaData = null;");
@@ -899,12 +899,17 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
         protected void generateExtraImports( IndentedWriter iw ) throws IOException
         {
             super.generateExtraImports( iw );
+            iw.println("import java.util.concurrent.locks.ReentrantLock;");
             iw.println("import java.lang.reflect.InvocationTargetException;");
             iw.println("import com.mchange.v2.util.ResourceClosedException;");
         }
 
 	protected void generatePreDelegateCode( Class intfcl, String genclass, Method method, IndentedWriter iw ) throws IOException 
 	{
+            iw.println("this.lock.lock();");
+            iw.println("try");
+            iw.println("{");
+            iw.upIndent();
 	    if ("setClientInfo".equals(method.getName()))
 	    {
 		iw.println("try");
@@ -912,7 +917,6 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
 		iw.upIndent();
 
 		super.generatePreDelegateCode( intfcl, genclass, method, iw );
-		
 	    }
 	    else
 		super.generatePreDelegateCode( intfcl, genclass, method, iw );
@@ -923,7 +927,7 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
 	    if ("setClientInfo".equals(method.getName()))
 	    {
 		super.generatePostDelegateCode( intfcl, genclass, method, iw );
-		
+
 		iw.downIndent();
 		iw.println("}");
 		iw.println("catch (Exception e)");
@@ -931,6 +935,10 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
 	    }
 	    else
 		super.generatePostDelegateCode( intfcl, genclass, method, iw );
+            iw.downIndent();
+            iw.println("}");
+            iw.println("finally");
+            iw.println("{ this.lock.unlock(); }");
 	}
     }
 
