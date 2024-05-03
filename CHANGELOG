@@ -1,3 +1,7 @@
+	-- Modify former InUseLock (now InternalUseLock) and NewProxyConnection
+	   to use ReentrantLock rather than native monitors, to prevent pinning
+	   when clients run on loom virtual threads.
+	   Thanks Alex Kormukhin and Jeffrey Tucker!
 	-- Implement config parameter markSessionBoundaries, so that users can
 	   disable JDBC 4.3 beginRequest / endRequest session boundary marking
 	   when JDBC drivers so undesirable things with those hints.
