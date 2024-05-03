@@ -15,6 +15,11 @@ public final class ConnectionBoundariesJUnitTestCase extends TestCase {
     DriverManager.registerDriver(new MockDriver());
   }
 
+  boolean shouldMarkBoundaries( ComboPooledDataSource cpds ) {
+      String msb = cpds.getMarkSessionBoundaries();
+      return "always".equalsIgnoreCase(msb) || ("if-no-statement-cache".equalsIgnoreCase(msb) && cpds.getMaxStatements() == 0 && cpds.getMaxStatementsPerConnection() == 0);
+  }
+
   public void testConnectionWithBoundaries() throws Exception {
     DriverManager.registerDriver(new MockDriver());
     ComboPooledDataSource cpds = new ComboPooledDataSource();
@@ -23,23 +28,33 @@ public final class ConnectionBoundariesJUnitTestCase extends TestCase {
     cpds.setUser("dbuser");
     cpds.setPassword("dbpassword");
 
-    assertEquals("Expect no calls to beginRequest before getConnection", 0, MockDriver.beginRequestCount.get());
-    assertEquals("Expect no calls to endRequest before getConnection", 0, MockDriver.endRequestCount.get());
-    Connection con = cpds.getConnection();
-    assertEquals("Expect a call to beginRequest after getConnection", 1, MockDriver.beginRequestCount.get());
-    assertEquals("Expect no calls to endRequest after getConnection", 0, MockDriver.endRequestCount.get());
-    con.close();
-    assertEquals("Expect a call to beginRequest after close", 1, MockDriver.beginRequestCount.get());
-    assertEquals("Expect a call to endRequest after close", 1, MockDriver.endRequestCount.get());
+    if (shouldMarkBoundaries(cpds)) {
+      assertEquals("Expect no calls to beginRequest before getConnection", 0, MockDriver.beginRequestCount.get());
+      assertEquals("Expect no calls to endRequest before getConnection", 0, MockDriver.endRequestCount.get());
+      Connection con = cpds.getConnection();
+      assertEquals("Expect a call to beginRequest after getConnection", 1, MockDriver.beginRequestCount.get());
+      assertEquals("Expect no calls to endRequest after getConnection", 0, MockDriver.endRequestCount.get());
+      con.close();
+      assertEquals("Expect a call to beginRequest after close", 1, MockDriver.beginRequestCount.get());
+      assertEquals("Expect a call to endRequest after close", 1, MockDriver.endRequestCount.get());
 
-    assertEquals("Expect no calls to beginRequest before getConnection", 1, MockDriver.beginRequestCount.get());
-    assertEquals("Expect no calls to endRequest before getConnection", 1, MockDriver.endRequestCount.get());
-    con = cpds.getConnection();
-    assertEquals("Expect a call to beginRequest after getConnection", 2, MockDriver.beginRequestCount.get());
-    assertEquals("Expect no calls to endRequest after getConnection", 1, MockDriver.endRequestCount.get());
-    con.close();
-    assertEquals("Expect a call to beginRequest after close", 2, MockDriver.beginRequestCount.get());
-    assertEquals("Expect a call to endRequest after close", 2, MockDriver.endRequestCount.get());
+      assertEquals("Expect no calls to beginRequest before getConnection", 1, MockDriver.beginRequestCount.get());
+      assertEquals("Expect no calls to endRequest before getConnection", 1, MockDriver.endRequestCount.get());
+      con = cpds.getConnection();
+      assertEquals("Expect a call to beginRequest after getConnection", 2, MockDriver.beginRequestCount.get());
+      assertEquals("Expect no calls to endRequest after getConnection", 1, MockDriver.endRequestCount.get());
+      con.close();
+      assertEquals("Expect a call to beginRequest after close", 2, MockDriver.beginRequestCount.get());
+      assertEquals("Expect a call to endRequest after close", 2, MockDriver.endRequestCount.get());
+    }
+    else {
+      assertEquals("Expect no calls to beginRequest before getConnection", 0, MockDriver.beginRequestCount.get());
+      assertEquals("Expect no calls to endRequest before getConnection", 0, MockDriver.endRequestCount.get());
+      Connection con = cpds.getConnection();
+      assertEquals("Expect no call to beginRequest after getConnection with boundary marking suppressed", 0, MockDriver.beginRequestCount.get());
+      con.close();
+      assertEquals("Expect no call to endRequest after close with boundary marking suppressed", 0, MockDriver.endRequestCount.get());
+    }
   }
 
   public void testConnectionWithoutBoundaries() throws Exception {
