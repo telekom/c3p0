@@ -592,9 +592,9 @@ public final class C3P0PooledConnectionPool
 
                 public void refurbishResourceOnCheckout( Object resc ) throws Exception
                 {
+                    internalUseLockManager.lockInternalUse(resc);
                     try
 		    {
-                        internalUseLockManager.lockInternalUse(resc);
 			if ( connectionCustomizer != null )
 			{
 			    Connection physicalConnection = null;
@@ -652,9 +652,9 @@ public final class C3P0PooledConnectionPool
                     boolean attemptResurrect = (resurrectables != null && resurrectables.checkResurrectable(resc));
 		    try
 		    {
+                      internalUseLockManager.lockInternalUse(resc);
                       try
 		      {
-                        internalUseLockManager.lockInternalUse(resc);
 			if ( connectionCustomizer != null )
 			{
 			    Connection physicalConnection = null;
@@ -730,9 +730,9 @@ public final class C3P0PooledConnectionPool
 
                 public void refurbishIdleResource( Object resc ) throws Exception
                 {
+                    internalUseLockManager.lockInternalUse(resc);
                     try
 		    {
-                        internalUseLockManager.lockInternalUse(resc);
 			PooledConnection pc = (PooledConnection) resc;
 			try
 			{
