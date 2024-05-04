@@ -220,7 +220,7 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
                 iw.println("if (innerResultSet == null) return null;");
                 iw.println("parentPooledConnection.markActiveResultSetForStatement( inner, innerResultSet );");
                 iw.println("NewProxyResultSet out = new NewProxyResultSet( innerResultSet, parentPooledConnection, inner, this );"); 
-		iw.println("synchronized ( myProxyResultSets ) { myProxyResultSets.add( out ); }");
+		iw.println("synchronized ( myProxyResultSets ) { myProxyResultSets.add( out ); }"); // no potentially blocking operations within lock
 		iw.println("return out;");
             }
             else if ( mname.equals("getConnection") )
@@ -240,7 +240,7 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
                 iw.println("{");
                 iw.upIndent();
 		//iw.println("System.err.println(\042Closing proxy Statement: \042 + this);");
-		iw.println("synchronized ( myProxyResultSets )");
+		iw.println("synchronized ( myProxyResultSets )"); // no potentially blocking operations within lock
                 iw.println("{");
                 iw.upIndent();
 		iw.println("for( Iterator ii = myProxyResultSets.iterator(); ii.hasNext(); )");
@@ -316,7 +316,7 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
             if (CONCURRENT_ACCESS_DEBUG)
             {
                 iw.println("Object record;");
-                iw.println("synchronized (concurrentAccessRecorder)");
+                iw.println("synchronized (concurrentAccessRecorder)"); // no potentially blocking operations within lock
                 iw.println("{");
                 iw.upIndent();
 
@@ -374,14 +374,17 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
 	    iw.println("// Although formally unnecessary, we sync access to myProxyResultSets on");
 	    iw.println("// that set's own lock, in case clients (illegally but not uncommonly) close()");
 	    iw.println("// the Statement from a Thread other than the one they use in general");
-	    iw.println("// with the Statement");
+	    iw.println("// with the Statement.");
+            iw.println("//");
+            iw.println("// We never risk blocking applications within this lock, so we don't need");
+            iw.println("// to worry about loom virtual thread pinning.");
 	    iw.println("HashSet myProxyResultSets = new HashSet();");
             iw.println();
 	    iw.println("public void detachProxyResultSet( ResultSet prs )");
 	    iw.println("{");
 	    iw.upIndent();
 	    //iw.println("System.err.println(\042detachProxyResultSet\042);");
-	    iw.println("synchronized (myProxyResultSets) { myProxyResultSets.remove( prs ); }");
+	    iw.println("synchronized (myProxyResultSets) { myProxyResultSets.remove( prs ); }"); // no potentially blocking operations within lock
 	    iw.downIndent();
 	    iw.println("}");
 	    iw.println();
