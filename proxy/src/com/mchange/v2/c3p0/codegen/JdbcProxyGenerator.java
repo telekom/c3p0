@@ -837,8 +837,16 @@ public abstract class JdbcProxyGenerator extends DelegatorGenerator
             iw.downIndent();
             iw.println("}");
             iw.println();
-            iw.println("synchronized void maybeDirtyTransaction()");
-            iw.println("{ txn_known_resolved = false; }");
+            iw.println("void maybeDirtyTransaction()");
+            iw.println("{");
+	    iw.upIndent();
+	    iw.println("this.lock.lock();");
+	    iw.println("try");
+	    iw.println("{ txn_known_resolved = false; }");
+	    iw.println("finally");
+	    iw.println("{ this.lock.unlock(); }");
+	    iw.downIndent();
+	    iw.println("}");
 
             super.generateExtraDeclarations( intfcl, genclass, iw );
         }
