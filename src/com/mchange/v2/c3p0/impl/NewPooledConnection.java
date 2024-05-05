@@ -391,7 +391,7 @@ public final class NewPooledConnection extends AbstractC3P0PooledConnection{
                 {
                     //e.printStackTrace();
                     if (Debug.DEBUG && logger.isLoggable( MLevel.FINE ))
-                        logger.log(MLevel.FINE, "An exception occurred while reseting a closed Connection. Invalidating Connection.", e);
+                        logger.log(MLevel.FINE, "An exception occurred while resetting a closed Connection. Invalidating Connection.", e);
 		    
                     updateConnectionStatus( ConnectionTester.CONNECTION_IS_INVALID );
 
