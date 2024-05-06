@@ -1,3 +1,5 @@
+	-- Implement more and "louder" (log ugly stack traces) validation of
+	   config properties.
 	-- Modify former InUseLock (now InternalUseLock) and NewProxyConnection
 	   to use ReentrantLock rather than native monitors, to prevent pinning
 	   when clients run on loom virtual threads.

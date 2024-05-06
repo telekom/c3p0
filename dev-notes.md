@@ -1,16 +1,23 @@
 # dev-notes
 
 * It looks like throwing of PropertyVetoException may not be implemented for ostensibly constrained parameters:
-  - `connectionTesterClassName` (should classname params be constrained?)
+  - `connectionTesterClassName` (should classname params be constrained? no actual implementation I think)
   - `contextClassLoaderSource`
   - `markSessionBoundaries`
-  - `taskRunnerFactoryClassName` (should classname params be constrained?)
+  - `taskRunnerFactoryClassName` (should classname params be constrained? no actual implementation I think)
   - `userOverridesAsString`
   It might be disruptive to "fix" this now, as installations may have configs that are stable despite
   bad (vetoable) settings.
+  
+  PropertyVetoException appears to be thrown with explicit calls to setters, but not on implementation via config.
+  Variables are initialized to config values, circumventing validation.
+  
+  Okay. We've added a way to validate String config properties, and validation for `contextClassLoaderSource` and `markSessionBoundaries`.
 
   If class name properties should be constrained, probably so too ought be
   - `connectionCustomizerClassName`
+  but making it so would be an incompatible API change at this point, callers of the setter would have to prepare
+  for `ProppertyVetoException`, which now they do not.
 
 * When testing against intentionally chaotic configs, we occasionally see, at debug level FINE:
   ```plaintext

@@ -518,12 +518,26 @@ public final class C3P0Config
     public static Map initializeExtensions()
     { return getExtensions( null ); }
 
-    public static String initializeStringPropertyVar(String propKey, String dflt)
+    public static String initializeStringPropertyVar(String propKey, String dflt, Validator<String> validator)
     {
-	String out = getUnspecifiedUserProperty( propKey, null );
-	if (out == null) out = dflt;
-	return out;
+        String out = getUnspecifiedUserProperty( propKey, null );
+        try
+            {
+                if (out == null) out = dflt;
+                else if (validator != null) out = validator.validate(out);
+                return out;
+            }
+        catch (InvalidConfigException ice)
+            {
+                logger.log(MLevel.WARNING, "'" + out + "' is not a legal value for property '" + propKey +
+                           "'. Using default value: " + dflt, ice);
+                return dflt;
+            }
     }
+
+    public static String initializeStringPropertyVar(String propKey, String dflt)
+    { return initializeStringPropertyVar(propKey, dflt, null); }
+
 
     public static int initializeIntPropertyVar(String propKey, int dflt)
     {
@@ -535,13 +549,13 @@ public final class C3P0Config
 	    {
 		try 
 		    { 
-			out = Integer.parseInt( outStr.trim() ); 
+			out = Integer.parseInt( outStr.trim() );
 			set = true;
 		    }
 		catch (NumberFormatException e)
 		    {
-			logger.info("'" + outStr + "' is not a legal value for property '" + propKey +
-				    "'. Using default value: " + dflt);
+			logger.log(MLevel.WARNING, "'" + outStr + "' is not a legal value for property '" + propKey +
+				   "'. Using default value: " + dflt, e);
 		    }
 	    }
 
@@ -567,8 +581,8 @@ public final class C3P0Config
 		    }
 		catch (IllegalArgumentException e)
 		    {
-			logger.info("'" + outStr + "' is not a legal value for property '" + propKey +
-				    "'. Using default value: " + dflt);
+			logger.log(MLevel.WARNING, "'" + outStr + "' is not a legal value for property '" + propKey +
+				                   "'. Using default value: " + dflt, e);
 		    }
 	    }
 
