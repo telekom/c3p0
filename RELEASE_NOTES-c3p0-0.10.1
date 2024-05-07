@@ -1,0 +1,43 @@
+RELEASE NOTES, c3p0-0.10.1
+==========================
+
+This is a minor c3p0 release, but includes some important fixes!
+Thank to every one who reported issues.
+
+Some highlights:
+
+* Eliminates pinning within c3p0 proxies when clients are using loom virtual threads,
+  as long the underlying JDBC driver avoids pinning.
+
+* Fixes problems under Oracle drivers related to JDBC 4.3 beginRequest() / endRequest()
+  hints when running under JDBC 4.2 / Java 8 or lower
+
+* c3p0 statement caching is incompatible with certain drivers' handling of
+  JDBC 4.3 beginRequest() / endRequest() hints. These drivers close() outstanding
+  Statements when a session is reported completed (when endRequest() is called),
+  destroying Statements which cached by c3p0 precisely to survive multiple sessions.
+  To address this, and any other issues associated with driver handling of
+  JDBC 4.3 beginRequest() / endRequest() hints, c3p0 adds a new config
+  parameter -- markSessionBoundaries -- which may take values 'always',
+  'never', or 'if-no-statement-cache'. See the documentation for more.
+
+* Other more minor improvements and fixes.
+
+Config parameters added:
+------------------------
+    markSessionBoundaries
+
+Deprecated config parameter removed:
+------------------------------------
+    <none>
+
+Thanks to...
+
+    Anand Bikas
+    Alex Kormukhin
+    khushboo11-dotcom
+    Vlad Skarzhevskyy
+    Jeffrey Tucker
+
+and anyone else I may have forgotten!
+
