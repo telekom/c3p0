@@ -524,6 +524,12 @@ public abstract class GooGooStatementCache
                     }
                     catch ( Exception e )
                     { exceptionHolder[0] = e; }
+                    catch ( Throwable t )
+                    {
+                        if (logger.isLoggable(MLevel.SEVERE))
+                            logger.log( MLevel.SEVERE, "An unexpected Error (or other non-Exception Throwable) occurred while trying to produce a cacheable PreparedStatement.", t );
+                        exceptionHolder[0] = t;
+                    }
                     finally
                     { 
                         synchronized ( GooGooStatementCache.this )
@@ -537,8 +543,16 @@ public abstract class GooGooStatementCache
 
             while ( outHolder[0] == null && exceptionHolder[0] == null )
                 this.wait(); //give up our lock while the Statement gets prepared
-            if (exceptionHolder[0] != null)
-                throw new SQLException("A problem occurred while trying to acquire a cached PreparedStatement in a background thread.", exceptionHolder[0] );
+            Throwable t = exceptionHolder[0];
+            if (t != null)
+            {
+                if (t instanceof Exception)
+                    throw new SQLException("A problem occurred while trying to acquire a cached PreparedStatement in a background thread.", exceptionHolder[0] );
+                else if (t instanceof Error)
+                    throw (Error) t;
+                else
+                    throw new Error("Unexpected non-Error, non-Exception Throwable while trying to acquire a cached PreparedStatement in a background thread: " + t, t);
+            }
             else
             {
                 Object out = outHolder[0];
